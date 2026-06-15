@@ -1,0 +1,241 @@
+# ==========================================
+# GERADOR DE TABELA-VERDADE Pro
+# ==========================================
+
+# --- SISTEMA DE CORES
+def cor(valor):
+    VERDE = '\033[92m'
+    VERMELHO = '\033[91m'
+    RESET = '\033[0m'
+    if valor == 'V':
+        return f"{VERDE}V{RESET}"
+    elif valor == 'F':
+        return f"{VERMELHO}F{RESET}"
+    return valor
+
+def formatar_celula(valor, tamanho_coluna):
+    # Centraliza o valor 'V' ou 'F' no espaço do cabeçalho da coluna
+    espaco_esquerda = (tamanho_coluna - 1) // 2
+    espaco_direita = tamanho_coluna - 1 - espaco_esquerda
+    return (" " * espaco_esquerda) + cor(valor) + (" " * espaco_direita)
+
+# --- ANALISADOR DE TOKENS ---
+def tokenizar(formula):
+    # Remove espaços e transforma num array de símbolos identificáveis
+    formula = formula.replace(" ", "")
+    tokens = []
+    i = 0
+    while i < len(formula):
+        if formula[i:i+4] == '<-->':
+            tokens.append('<-->')
+            i += 4
+        elif formula[i:i+2] == '->':
+            tokens.append('->')
+            i += 2
+        elif formula[i] in ['&', '|', '~', '(', ')']:
+            tokens.append(formula[i])
+            i += 1
+        elif formula[i].isalpha() and formula[i].upper() not in ['V', 'F']:
+            tokens.append(formula[i].upper())
+            i += 1
+        else:
+            print(f"\nERRO: Símbolo inválido detectado na fórmula: '{formula[i]}'")
+            print("Certifique-se de usar variáveis (A, B, P, Q) e conectivos válidos (&, |, ->, <-->).")
+            return None
+    return tokens
+
+# FUNÇÃO OBRIGATÓRIA 1: Valida Parênteses
+def verifica_parenteses(formula):
+    contador = 0
+    for char in formula:
+        if char == '(': contador += 1
+        elif char == ')': contador -= 1
+        if contador < 0: return False
+    return contador == 0
+
+# FUNÇÃO OBRIGATÓRIA 2: Fórmula bem-formada
+def formula_bem_formada(formula):
+    if not verifica_parenteses(formula) or "()" in formula:
+        return False
+    tokens = tokenizar(formula)
+    if tokens is None or len(tokens) == 0:
+        return False
+    # Regra básica: Não pode começar/terminar com conectivo de dois lados
+    binarios = ['&', '|', '->', '<-->']
+    if tokens[0] in binarios or tokens[-1] in binarios + ['~']:
+        return False
+    return True
+
+# FUNÇÃO OBRIGATÓRIA 3: Extrai proposições simples
+def extrai_proposicoes(formula):
+    tokens = tokenizar(formula)
+    proposicoes = []
+    if tokens:
+        for t in tokens:
+            if t.isalpha() and t not in ['V', 'F'] and t not in proposicoes:
+                proposicoes.append(t)
+    proposicoes.sort()
+    print("Proposições simples da fórmula:", ", ".join(proposicoes))
+    return proposicoes
+
+# FUNÇÃO OBRIGATÓRIA 4: Gera Combinações de V e F
+def tabela_verdade_combinacoes(n):
+    if n <= 0: return
+    letras = [chr(65+i) for i in range(n)]
+    cabecalho = " | ".join(letras)
+    print(cabecalho)
+    print("-" * len(cabecalho))
+    
+    total_linhas = 2 ** n
+    for i in range(total_linhas):
+        binario = bin(i)[2:]
+        binario = '0' * (n - len(binario)) + binario
+        linha = []
+        for bit in binario:
+            valor = 'V' if bit == '0' else 'F'
+            linha.append(formatar_celula(valor, 1))
+        print(" | ".join(linha))
+
+# FUNÇÃO OBRIGATÓRIA 5: Tabela de Conectivo Simples
+def tabela_verdade_conectivo(conectivo):
+    valores = ['V', 'F']
+    for p in valores:
+        for q in valores:
+            if conectivo == '&': res = 'V' if p == 'V' and q == 'V' else 'F'
+            elif conectivo == '|': res = 'F' if p == 'F' and q == 'F' else 'V'
+            elif conectivo == '->': res = 'F' if p == 'V' and q == 'F' else 'V'
+            elif conectivo == '<-->': res = 'V' if p == q else 'F'
+            else: res = '?'
+            print(f"{cor(p)} {conectivo} {cor(q)} = {cor(res)}")
+
+# --- ALGORITMO SHUNTING YARD ---
+def converte_para_posfixa(tokens):
+    precedencia = {'~': 4, '&': 3, '|': 2, '->': 1, '<-->': 0}
+    saida = []
+    pilha = []
+    for token in tokens:
+        if token.isalpha() and token not in ['V', 'F']:
+            saida.append(token)
+        elif token == '~':
+            pilha.append(token)
+        elif token in precedencia:
+            while pilha and pilha[-1] != '(' and precedencia.get(pilha[-1], -1) >= precedencia[token]:
+                if token == '~' and pilha[-1] == '~': break # Exceção para ~ seguidos
+                saida.append(pilha.pop())
+            pilha.append(token)
+        elif token == '(':
+            pilha.append(token)
+        elif token == ')':
+            while pilha and pilha[-1] != '(':
+                saida.append(pilha.pop())
+            if pilha: pilha.pop() # Remove '('
+    while pilha:
+        saida.append(pilha.pop())
+    return saida
+
+def constroi_e_avalia(posfixa, valores_linha):
+    pilha = []
+    resultados = {} # Guarda o valor de CADA pedaço da fórmula
+    colunas_geradas = [] # Guarda os nomes das colunas na ordem de criação
+    
+    for token in posfixa:
+        if token.isalpha() and token not in ['V', 'F']:
+            pilha.append(token)
+            resultados[token] = valores_linha[token]
+            if token not in colunas_geradas: colunas_geradas.append(token)
+            
+        elif token == '~':
+            operando = pilha.pop()
+            expressao = f"~{operando}"
+            valor = 'F' if resultados[operando] == 'V' else 'V'
+            
+            resultados[expressao] = valor
+            pilha.append(expressao)
+            if expressao not in colunas_geradas: colunas_geradas.append(expressao)
+            
+        else: # Conectivos de duas partes (&, |, ->, <-->)
+            direita = pilha.pop()
+            esquerda = pilha.pop()
+            expressao = f"({esquerda}{token}{direita})"
+            
+            v_esq = resultados[esquerda]
+            v_dir = resultados[direita]
+            
+            if token == '&': val = 'V' if v_esq == 'V' and v_dir == 'V' else 'F'
+            elif token == '|': val = 'F' if v_esq == 'F' and v_dir == 'F' else 'V'
+            elif token == '->': val = 'F' if v_esq == 'V' and v_dir == 'F' else 'V'
+            elif token == '<-->': val = 'V' if v_esq == v_dir else 'F'
+            
+            resultados[expressao] = val
+            pilha.append(expressao)
+            if expressao not in colunas_geradas: colunas_geradas.append(expressao)
+            
+    return resultados, colunas_geradas
+
+# --- TABELA ---
+def tabela_verdade(formula):
+    if not formula_bem_formada(formula):
+        print("Operação cancelada: Sintaxe incorreta ou parênteses vazios/incompletos.")
+        return
+        
+    tokens = tokenizar(formula)
+    proposicoes = extrai_proposicoes(formula)
+    n = len(proposicoes)
+    
+    posfixa = converte_para_posfixa(tokens)
+    
+    # Executa um teste
+    valores_fantasma = {p: 'V' for p in proposicoes}
+    _, cabecalhos_completos = constroi_e_avalia(posfixa, valores_fantasma)
+    
+    # Imprime com espaçamentos
+    separador = " | "
+    linha_cabecalho = separador.join(cabecalhos_completos)
+    print("\n" + linha_cabecalho)
+    print("-" * len(linha_cabecalho))
+    
+    # Monta a tabela linha por linha
+    total_linhas = 2 ** n
+    for i in range(total_linhas):
+        binario = bin(i)[2:]
+        binario = '0' * (n - len(binario)) + binario
+        
+        # Define os valores V ou F para a linha atual
+        valores_linha = {}
+        for j in range(n):
+            valores_linha[proposicoes[j]] = 'V' if binario[j] == '0' else 'F'
+            
+        # Calcula todos os resultados intermediários dessa linha
+        resultados, _ = constroi_e_avalia(posfixa, valores_linha)
+        
+        # Formata as células com cores e centraliza o V/F debaixo de cada cabeçalho
+        linha_tabela = []
+        for cabecalho in cabecalhos_completos:
+            valor = resultados[cabecalho]
+            celula_formatada = formatar_celula(valor, len(cabecalho))
+            linha_tabela.append(celula_formatada)
+            
+        print(separador.join(linha_tabela))
+
+# ==========================================
+# INTERAÇÃO COM O USUÁRIo
+# ==========================================
+if __name__ == "__main__":
+    while True:
+        print("\n" + "="*55)
+        print("       GERADOR DE TABELA-VERDADE (PRO EDITION)       ")
+        print("="*55)
+        print("Conectivos: & (E), | (OU), -> (Implica), <--> (Bi-implica), ~ (Não)")
+        print("Digite 'sair' para encerrar o programa.")
+        print("-"*55)
+        
+        formula_usuario = input("Digite a sua fórmula lógica: ").strip()
+        
+        if formula_usuario.lower() == 'sair':
+            print("Encerrando o sistema...")
+            break
+            
+        if formula_usuario:
+            print("\n" + "-"*55)
+            tabela_verdade(formula_usuario)
+            print("-" * 55)
